@@ -3,6 +3,7 @@
 
 var _                   = require('lodash'),
     Promise             = require('bluebird'),
+    errors              = require('../errors'),
     Models              = require('../models'),
     effectivePerms      = require('./effective'),
     init,
@@ -20,28 +21,88 @@ function hasActionsMap() {
     });
 }
 
-// TODO: Move this to its own file so others can use it?
 function parseContext(context) {
     // Parse what's passed to canThis.beginCheck for standard user and app scopes
     var parsed = {
             internal: false,
             user: null,
-            app: null
+            app: null,
+            public: true
         };
 
     if (context && (context === 'internal' || context.internal)) {
         parsed.internal = true;
+        parsed.public = false;
     }
 
     if (context && context.user) {
         parsed.user = context.user;
+        parsed.public = false;
     }
 
     if (context && context.app) {
         parsed.app = context.app;
+        parsed.public = false;
     }
 
     return parsed;
+}
+
+function applyStatusRules(docName, method, opts) {
+    var errorMsg = 'You do not have permission to retrieve ' + docName + ' with that status';
+
+    // Enforce status 'active' for users
+    if (docName === 'users') {
+        if (!opts.status) {
+            return 'active';
+        } else if (opts.status !== 'active') {
+            throw errorMsg;
+        }
+    }
+
+    // Enforce status 'published' for posts
+    if (docName === 'posts') {
+        if (!opts.status) {
+            return 'published';
+        } else if (
+            method === 'read'
+            && (opts.status === 'draft' || opts.status === 'all')
+            && _.isString(opts.uuid) && _.isUndefined(opts.id) && _.isUndefined(opts.slug)
+        ) {
+            // public read requests can retrieve a draft, but only by UUID
+            return opts.status;
+        } else if (opts.status !== 'published') {
+            // any other parameter would make this a permissions error
+            throw errorMsg;
+        }
+    }
+
+    return opts.status;
+}
+
+/**
+ * API Public Permission Rules
+ * This method enforces the rules for public requests
+ * @param {String} docName
+ * @param {String} method (read || browse)
+ * @param {Object} options
+ * @returns {Object} options
+ */
+function applyPublicRules(docName, method, options) {
+    try {
+        // If this is a public context
+        if (parseContext(options.context).public === true) {
+            if (method === 'browse') {
+                options.status = applyStatusRules(docName, method, options);
+            } else if (method === 'read') {
+                options.data.status = applyStatusRules(docName, method, options.data);
+            }
+        }
+
+        return Promise.resolve(options);
+    } catch (err) {
+        return Promise.reject(err);
+    }
 }
 
 // Base class for canThis call results
@@ -49,18 +110,23 @@ CanThisResult = function () {
     return;
 };
 
-CanThisResult.prototype.buildObjectTypeHandlers = function (obj_types, act_type, context, permissionLoad) {
-    // @TODO: remove this lazy require
-    var objectTypeModelMap  = require('./objectTypeModelMap');
+CanThisResult.prototype.buildObjectTypeHandlers = function (objTypes, actType, context, permissionLoad) {
+    var objectTypeModelMap = {
+        post:       Models.Post,
+        role:       Models.Role,
+        user:       Models.User,
+        permission: Models.Permission,
+        setting:    Models.Settings
+    };
 
     // Iterate through the object types, i.e. ['post', 'tag', 'user']
-    return _.reduce(obj_types, function (obj_type_handlers, obj_type) {
+    return _.reduce(objTypes, function (objTypeHandlers, objType) {
         // Grab the TargetModel through the objectTypeModelMap
-        var TargetModel = objectTypeModelMap[obj_type];
+        var TargetModel = objectTypeModelMap[objType];
 
         // Create the 'handler' for the object type;
         // the '.post()' in canThis(user).edit.post()
-        obj_type_handlers[obj_type] = function (modelOrId) {
+        objTypeHandlers[objType] = function (modelOrId) {
             var modelId;
 
             // If it's an internal request, resolve immediately
@@ -86,7 +152,7 @@ CanThisResult.prototype.buildObjectTypeHandlers = function (obj_types, act_type,
                         var permObjId;
 
                         // Look for a matching action type and object type first
-                        if (perm.get('action_type') !== act_type || perm.get('object_type') !== obj_type) {
+                        if (perm.get('action_type') !== actType || perm.get('object_type') !== objType) {
                             return false;
                         }
 
@@ -106,12 +172,11 @@ CanThisResult.prototype.buildObjectTypeHandlers = function (obj_types, act_type,
                     };
                 // Check user permissions for matching action, object and id.
 
-                if (_.any(loadedPermissions.user.roles, { 'name': 'Owner' })) {
+                if (_.any(loadedPermissions.user.roles, {name: 'Owner'})) {
                     hasUserPermission = true;
                 } else if (!_.isEmpty(userPermissions)) {
                     hasUserPermission = _.any(userPermissions, checkPermission);
                 }
-
 
                 // Check app permissions if they were passed
                 hasAppPermission = true;
@@ -122,7 +187,7 @@ CanThisResult.prototype.buildObjectTypeHandlers = function (obj_types, act_type,
                 // Offer a chance for the TargetModel to override the results
                 if (TargetModel && _.isFunction(TargetModel.permissible)) {
                     return TargetModel.permissible(
-                        modelId, act_type, context, loadedPermissions, hasUserPermission, hasAppPermission
+                        modelId, actType, context, loadedPermissions, hasUserPermission, hasAppPermission
                     );
                 }
 
@@ -130,11 +195,11 @@ CanThisResult.prototype.buildObjectTypeHandlers = function (obj_types, act_type,
                     return;
                 }
 
-                return Promise.reject();
+                return Promise.reject(new errors.NoPermissionError('You do not have permission to perform this action'));
             });
         };
 
-        return obj_type_handlers;
+        return objTypeHandlers;
     }, {});
 };
 
@@ -148,7 +213,7 @@ CanThisResult.prototype.beginCheck = function (context) {
     context = parseContext(context);
 
     if (!hasActionsMap()) {
-        throw new Error("No actions map found, please call permissions.init() before use.");
+        throw new Error('No actions map found, please call permissions.init() before use.');
     }
 
     // Kick off loading of effective user permissions if necessary
@@ -158,7 +223,6 @@ CanThisResult.prototype.beginCheck = function (context) {
         // Resolve null if no context.user to prevent db call
         userPermissionLoad = Promise.resolve(null);
     }
-
 
     // Kick off loading of effective app permissions if necessary
     if (context.app) {
@@ -177,18 +241,18 @@ CanThisResult.prototype.beginCheck = function (context) {
     });
 
     // Iterate through the actions and their related object types
-    _.each(exported.actionsMap, function (obj_types, act_type) {
+    _.each(exported.actionsMap, function (objTypes, actType) {
         // Build up the object type handlers;
         // the '.post()' parts in canThis(user).edit.post()
-        var obj_type_handlers = self.buildObjectTypeHandlers(obj_types, act_type, context, permissionsLoad);
+        var objTypeHandlers = self.buildObjectTypeHandlers(objTypes, actType, context, permissionsLoad);
 
         // Define a property for the action on the result;
         // the '.edit' in canThis(user).edit.post()
-        Object.defineProperty(self, act_type, {
+        Object.defineProperty(self, actType, {
             writable: false,
             enumerable: false,
             configurable: false,
-            value: obj_type_handlers
+            value: objTypeHandlers
         });
     });
 
@@ -218,19 +282,19 @@ init = refresh = function () {
         }
         */
         _.each(perms.models, function (perm) {
-            var action_type = perm.get('action_type'),
-                object_type = perm.get('object_type');
+            var actionType = perm.get('action_type'),
+                objectType = perm.get('object_type');
 
-            exported.actionsMap[action_type] = exported.actionsMap[action_type] || [];
-            seenActions[action_type] = seenActions[action_type] || {};
+            exported.actionsMap[actionType] = exported.actionsMap[actionType] || [];
+            seenActions[actionType] = seenActions[actionType] || {};
 
             // Check if we've already seen this action -> object combo
-            if (seenActions[action_type][object_type]) {
+            if (seenActions[actionType][objectType]) {
                 return;
             }
 
-            exported.actionsMap[action_type].push(object_type);
-            seenActions[action_type][object_type] = true;
+            exported.actionsMap[actionType].push(objectType);
+            seenActions[actionType][objectType] = true;
         });
 
         return exported.actionsMap;
@@ -241,5 +305,7 @@ module.exports = exported = {
     init: init,
     refresh: refresh,
     canThis: canThis,
+    parseContext: parseContext,
+    applyPublicRules: applyPublicRules,
     actionsMap: {}
 };

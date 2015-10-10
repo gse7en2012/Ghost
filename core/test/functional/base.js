@@ -30,7 +30,7 @@ var DEBUG = false, // TOGGLE THIS TO GET MORE SCREENSHOTS
     url = 'http://' + host + (noPort ? '/' : ':' + port + '/'),
     newUser = {
         name: 'Test User',
-        slug: 'test-user',
+        slug: 'test',
         email: email,
         password: password
     },
@@ -52,86 +52,123 @@ var DEBUG = false, // TOGGLE THIS TO GET MORE SCREENSHOTS
         title: 'Bacon ipsum dolor sit amet',
         html: 'I am a test post.\n#I have some small content'
     },
-    screens;
+    screens,
+    CasperTest,
+    utils = require('utils'),
+    // ## Debugging
+    jsErrors = [],
+    pageErrors = [],
+    resourceErrors = [];
 
 screens = {
-    'root': {
+    root: {
         url: 'ghost/',
-        linkSelector: '.nav-content',
-        selector: '.nav-content.active'
+        linkSelector: '.gh-nav-main-content',
+        selector: '.gh-nav-main-content.active'
     },
-    'content': {
-        url: 'ghost/content/',
-        linkSelector: '.nav-content',
-        selector: '.nav-content.active'
+    content: {
+        url: 'ghost/',
+        linkSelector: '.gh-nav-main-content',
+        selector: '.gh-nav-main-content.active'
     },
-    'editor': {
+    editor: {
         url: 'ghost/editor/',
-        linkSelector: '.nav-new',
-        selector: '#entry-title'
+        linkSelector: '.gh-nav-main-editor',
+        selector: '.gh-nav-main-editor.active'
     },
-    'settings': {
-        url: 'ghost/settings/',
-        linkSelector: '.nav-settings',
-        selector: '.nav-settings.active'
+    about: {
+        url: 'ghost/about',
+        linkSelector: '.gh-nav-menu-about',
+        selector: '.gh-about-header'
+    },
+    'editor.editing': {
+        url: 'ghost/editor/',
+        linkSelector: 'a.post-edit',
+        selector: '.entry-markdown-content .markdown-editor'
     },
     'settings.general': {
         url: 'ghost/settings/general',
-        selector: '.settings-menu-general.active'
+        selector: '.gh-nav-settings-general.active'
     },
-    'settings.users': {
-        url: 'ghost/settings/users',
-        linkSelector: '.settings-menu-users a',
-        selector: '.settings-menu-users.active'
+    'settings.tags': {
+        url: 'ghost/settings/tags',
+        selector: '.gh-nav-settings-tags.active'
     },
-    'settings.users.user': {
-        url: 'ghost/settings/users/test-user',
+    team: {
+        url: 'ghost/team',
+        linkSelector: '.gh-nav-main-users',
+        selector: '.gh-nav-main-users.active'
+    },
+    'team.user': {
+        url: 'ghost/team/test',
         linkSelector: '.user-menu-profile',
         selector: '.user-profile'
     },
-    'signin': {
+    signin: {
         url: 'ghost/signin/',
         selector: '.btn-blue'
     },
     'signin-authenticated': {
         url: 'ghost/signin/',
-        //signin with authenticated user redirects to posts
-        selector: '.nav-content.active'
+        // signin with authenticated user redirects to posts
+        selector: '.gh-nav-main-content.active'
     },
-    'signout': {
+
+    signout: {
         url: 'ghost/signout/',
         linkSelector: '.user-menu-signout',
         // When no user exists we get redirected to setup which has btn-green
         selector: '.btn-blue, .btn-green'
     },
-    'signup': {
+    signup: {
         url: 'ghost/signup/',
         selector: '.btn-blue'
     },
-    'setup': {
-        url: 'ghost/setup/',
+    setup: {
+        url: 'ghost/setup/one/',
         selector: '.btn-green'
+    },
+    'setup.two': {
+        url: 'ghost/setup/two/',
+        linkSelector: '.btn-green',
+        selector: '.gh-flow-create'
+    },
+    'setup.three': {
+        url: 'ghost/setup/three/',
+        selector: '.gh-flow-invite'
     },
     'setup-authenticated': {
         url: 'ghost/setup/',
-        selector: '.nav-content.active'
+        selector: '.gh-nav-main-content.active'
     }
 };
 
-casper.writeContentToCodeMirror = function (content) {
-    var lines = content.split('\n');
+casper.writeContentToEditor = function (content) {
+    // If we are on a new editor, the autosave is going to get triggered when we try to type, so we need to trigger
+    // that and wait for it to sort itself out
+    if (/ghost\/editor\/$/.test(casper.getCurrentUrl())) {
+        casper.waitForSelector('.entry-markdown-content textarea', function onSuccess() {
+            casper.click('.entry-markdown-content textarea');
+        }, function onTimeout() {
+            casper.test.fail('Editor was not found on initial load.');
+        }, 2000);
 
-    casper.waitForSelector('.CodeMirror-wrap textarea', function onSuccess() {
-        casper.each(lines, function (self, line) {
-            self.sendKeys('.CodeMirror-wrap textarea', line, {keepFocus: true});
-            self.sendKeys('.CodeMirror-wrap textarea', casper.page.event.key.Enter, {keepFocus: true});
-        });
+        casper.waitForUrl(/\/ghost\/editor\/\d+\/$/, function onSuccess() {
+            // do nothing
+        }, function onTimeout() {
+            casper.test.fail('The url didn\'t change: ' + casper.getCurrentUrl());
+        }, 2000);
+    }
 
-        casper.captureScreenshot('CodeMirror-Text.png');
+    casper.waitForSelector('.entry-markdown-content textarea', function onSuccess() {
+        casper.sendKeys('.entry-markdown-content textarea', content, {keepFocus: true});
+        // Always end with a new line
+        casper.sendKeys('.entry-markdown-content textarea', '\n', {keepFocus: true});
+        casper.captureScreenshot('EditorText.png');
 
         return this;
     }, function onTimeout() {
-        casper.test.fail('CodeMirror was not found.');
+        casper.test.fail('Editor was not found on main load.');
     }, 2000);
 };
 
@@ -162,7 +199,6 @@ casper.waitForTransparent = function (classname, then, timeout) {
     casper.waitForOpacity(classname, '0', then, timeout);
 };
 
-
 // ### Then Open And Wait For Page Load
 // Always wait for the `.page-content` element as some indication that the ember app has loaded.
 casper.thenOpenAndWaitForPageLoad = function (screen, then, timeout) {
@@ -170,9 +206,19 @@ casper.thenOpenAndWaitForPageLoad = function (screen, then, timeout) {
     timeout = timeout || casper.failOnTimeout(casper.test, 'Unable to load ' + screen);
 
     return casper.thenOpen(url + screens[screen].url).then(function () {
-        // Some screens fade in
-        return casper.waitForOpaque(screens[screen].selector, then, timeout, 10000);
+        // HACK: phantomjs + flexbox = nope. Fix offending styles here.
+        casper.evaluate(function () {
+            var style = document.createElement('style');
+            style.innerHTML = '.gh-main > section { width: auto; }';
+            document.body.appendChild(style);
+        });
+        return casper.waitForScreenLoad(screen, then, timeout);
     });
+};
+
+casper.waitForScreenLoad = function (screen, then, timeout) {
+    // Some screens fade in
+    return casper.waitForOpaque(screens[screen].selector, then, timeout, 10000);
 };
 
 casper.thenTransitionAndWaitForScreenLoad = function (screen, then, timeout) {
@@ -180,8 +226,7 @@ casper.thenTransitionAndWaitForScreenLoad = function (screen, then, timeout) {
     timeout = timeout || casper.failOnTimeout(casper.test, 'Unable to load ' + screen);
 
     return casper.thenClick(screens[screen].linkSelector).then(function () {
-        // Some screens fade in
-        return casper.waitForOpaque(screens[screen].selector, then, timeout, 10000);
+        return casper.waitForScreenLoad(screen, then, timeout);
     });
 };
 
@@ -211,17 +256,28 @@ casper.fillAndAdd = function (selector, data) {
     });
 };
 
-// ## Debugging
-var jsErrors = [],
-    pageErrors = [],
-    resourceErrors = [];
-
 // ## Echo Concise
 // Does casper.echo but checks for the presence of the --concise flag
 casper.echoConcise = function (message, style) {
     if (!casper.cli.options.concise) {
         casper.echo(message, style);
     }
+};
+
+// ### Wait for Selector Text
+// Does casper.waitForSelector but checks for the presence of specified text
+// http://stackoverflow.com/questions/32104784/wait-for-an-element-to-have-a-specific-text-with-casperjs
+casper.waitForSelectorText = function (selector, text, then, onTimeout, timeout) {
+    this.waitForSelector(selector, function _then() {
+        this.waitFor(function _check() {
+            var content = this.fetchText(selector);
+            if (utils.isRegExp(text)) {
+                return text.test(content);
+            }
+            return content.indexOf(text) !== -1;
+        }, then, onTimeout, timeout);
+    }, onTimeout, timeout);
+    return this;
 };
 
 // pass through all console.logs
@@ -232,7 +288,7 @@ casper.on('remote.message', function (msg) {
 // output any errors
 casper.on('error', function (msg, trace) {
     casper.echoConcise('ERROR, ' + msg, 'ERROR');
-    if (trace) {
+    if (trace && trace[0]) {
         casper.echoConcise('file:     ' + trace[0].file, 'WARNING');
         casper.echoConcise('line:     ' + trace[0].line, 'WARNING');
         casper.echoConcise('function: ' + trace[0]['function'], 'WARNING');
@@ -243,7 +299,7 @@ casper.on('error', function (msg, trace) {
 // output any page errors
 casper.on('page.error', function (msg, trace) {
     casper.echoConcise('PAGE ERROR: ' + msg, 'ERROR');
-    if (trace) {
+    if (trace && trace[0]) {
         casper.echoConcise('file:     ' + trace[0].file, 'WARNING');
         casper.echoConcise('line:     ' + trace[0].line, 'WARNING');
         casper.echoConcise('function: ' + trace[0]['function'], 'WARNING');
@@ -274,7 +330,7 @@ casper.captureScreenshot = function (filename, debugOnly) {
     }
 };
 
- // on failure, grab a screenshot
+// on failure, grab a screenshot
 casper.test.on('fail', function captureFailure() {
     casper.captureScreenshot(casper.test.filename || 'casper_test_fail.png', false);
     casper.then(function () {
@@ -303,8 +359,7 @@ casper.test.on('exit', function () {
     }
 });
 
-var CasperTest = (function () {
-
+CasperTest = (function () {
     var _beforeDoneHandler,
         _noop = function noop() { },
         _isUserRegistered = false;
@@ -319,24 +374,23 @@ var CasperTest = (function () {
     });
 
     // Wrapper around `casper.test.begin`
-    function begin(testName, expect, suite, doNotAutoLogin) {
+    function begin(testName, expect, suite, doNotAutoLogin, doNotRunSetup) {
         _beforeDoneHandler = _noop;
 
         var runTest = function (test) {
             test.filename = testName.toLowerCase().replace(/ /g, '-').concat('.png');
 
             casper.start('about:blank').viewport(1280, 1024);
+            // Only call register once for the lifetime of CasperTest
+            if (!_isUserRegistered && !doNotRunSetup) {
+                CasperTest.Routines.signout.run();
+                CasperTest.Routines.setup.run();
+                CasperTest.Routines.signout.run();
+
+                _isUserRegistered = true;
+            }
 
             if (!doNotAutoLogin) {
-                // Only call register once for the lifetime of CasperTest
-                if (!_isUserRegistered) {
-
-                    CasperTest.Routines.signout.run();
-                    CasperTest.Routines.setup.run();
-
-                    _isUserRegistered = true;
-                }
-
                 /* Ensure we're logged out at the start of every test or we may get
                  unexpected failures. */
                 CasperTest.Routines.signout.run();
@@ -349,7 +403,6 @@ var CasperTest = (function () {
                 test.done();
             });
         };
-
 
         if (typeof expect === 'function') {
             doNotAutoLogin = suite;
@@ -374,24 +427,20 @@ var CasperTest = (function () {
         begin: begin,
         beforeDone: beforeDone
     };
-
 }());
 
 CasperTest.Routines = (function () {
-
     function setup() {
-        casper.thenOpenAndWaitForPageLoad('setup', function then() {
+        casper.thenOpenAndWaitForPageLoad('setup.two', function then() {
             casper.captureScreenshot('setting_up1.png');
 
-            casper.waitForOpaque('.setup-box', function then() {
-                this.fillAndAdd('#setup', newSetup);
-            });
+            casper.fillAndAdd('#setup', newSetup);
 
             casper.captureScreenshot('setting_up2.png');
 
-            casper.waitForSelectorTextChange('.notification-error', function onSuccess() {
+            casper.waitForSelectorTextChange('.gh-alert-success', function onSuccess() {
                 var errorText = casper.evaluate(function () {
-                    return document.querySelector('.notification-error').innerText;
+                    return document.querySelector('.gh-alert').innerText;
                 });
                 casper.echoConcise('Setup failed. Error text: ' + errorText);
             }, function onTimeout() {
@@ -399,20 +448,18 @@ CasperTest.Routines = (function () {
             }, 2000);
 
             casper.captureScreenshot('setting_up3.png');
-
         });
     }
 
     function signin() {
         casper.thenOpenAndWaitForPageLoad('signin', function then() {
-
-            casper.waitForOpaque('.login-box', function then() {
+            casper.waitForOpaque('.gh-signin', function then() {
                 casper.captureScreenshot('signing_in.png');
                 this.fillAndSave('#login', user);
                 casper.captureScreenshot('signing_in2.png');
             });
 
-            casper.waitForResource(/posts\/\?status=all&staticPages=all/, function then() {
+            casper.waitForResource(/posts\/\?(?=.*status=all)(?=.*staticPages=all)/, function then() {
                 casper.captureScreenshot('signing_in.png');
             }, function timeout() {
                 casper.test.fail('Unable to signin and load admin panel');
@@ -448,9 +495,7 @@ CasperTest.Routines = (function () {
     function createTestPost(publish) {
         casper.thenOpenAndWaitForPageLoad('editor', function createTestPost() {
             casper.sendKeys('#entry-title', testPost.title);
-            casper.writeContentToCodeMirror(testPost.html);
-            casper.sendKeys('#entry-tags input.tag-input', 'TestTag');
-            casper.sendKeys('#entry-tags input.tag-input', casper.page.event.key.Enter);
+            casper.writeContentToEditor(testPost.html);
         });
 
         casper.waitForSelectorTextChange('.entry-preview .rendered-markdown');
@@ -476,10 +521,10 @@ CasperTest.Routines = (function () {
 
     function _createRunner(fn) {
         fn.run = function run(test) {
-            var routine = this;
+            var self = this;
 
             casper.then(function () {
-                routine.call(casper, test);
+                self.call(casper, test);
             });
         };
 
@@ -493,5 +538,4 @@ CasperTest.Routines = (function () {
         createTestPost: _createRunner(createTestPost),
         togglePermalinks: _createRunner(togglePermalinks)
     };
-
 }());

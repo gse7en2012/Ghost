@@ -10,11 +10,11 @@ Role = ghostBookshelf.Model.extend({
 
     tableName: 'roles',
 
-    users: function () {
+    users: function users() {
         return this.belongsToMany('User');
     },
 
-    permissions: function () {
+    permissions: function permissions() {
         return this.belongsToMany('Permission');
     }
 }, {
@@ -23,7 +23,7 @@ Role = ghostBookshelf.Model.extend({
     * @param {String} methodName The name of the method to check valid options for.
     * @return {Array} Keys allowed in the `options` hash of the model's method.
     */
-    permittedOptions: function (methodName) {
+    permittedOptions: function permittedOptions(methodName) {
         var options = ghostBookshelf.Model.permittedOptions(),
 
             // whitelists for the `options` hash argument on methods, by method name.
@@ -39,8 +39,7 @@ Role = ghostBookshelf.Model.extend({
         return options;
     },
 
-
-    permissible: function (roleModelOrId, action, context, loadedPermissions, hasUserPermission, hasAppPermission) {
+    permissible: function permissible(roleModelOrId, action, context, loadedPermissions, hasUserPermission, hasAppPermission) {
         var self = this,
             checkAgainst = [],
             origArgs;
@@ -51,7 +50,7 @@ Role = ghostBookshelf.Model.extend({
             // Grab the original args without the first one
             origArgs = _.toArray(arguments).slice(1);
             // Get the actual post model
-            return this.findOne({id: roleModelOrId, status: 'all'}).then(function (foundRoleModel) {
+            return this.findOne({id: roleModelOrId, status: 'all'}).then(function then(foundRoleModel) {
                 // Build up the original args but substitute with actual model
                 var newArgs = [foundRoleModel].concat(origArgs);
 
@@ -60,11 +59,11 @@ Role = ghostBookshelf.Model.extend({
         }
 
         if (action === 'assign' && loadedPermissions.user) {
-            if (_.any(loadedPermissions.user.roles, { 'name': 'Owner' })) {
+            if (_.any(loadedPermissions.user.roles, {name: 'Owner'})) {
                 checkAgainst = ['Owner', 'Administrator', 'Editor', 'Author'];
-            } else if (_.any(loadedPermissions.user.roles, { 'name': 'Administrator' })) {
+            } else if (_.any(loadedPermissions.user.roles, {name: 'Administrator'})) {
                 checkAgainst = ['Administrator', 'Editor', 'Author'];
-            } else if (_.any(loadedPermissions.user.roles, { 'name': 'Editor' })) {
+            } else if (_.any(loadedPermissions.user.roles, {name: 'Editor'})) {
                 checkAgainst = ['Author'];
             }
 
@@ -76,7 +75,7 @@ Role = ghostBookshelf.Model.extend({
             return Promise.resolve();
         }
 
-        return Promise.reject();
+        return Promise.reject(new errors.NoPermissionError('You do not have permission to perform this action'));
     }
 });
 

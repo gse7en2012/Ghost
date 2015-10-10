@@ -43,7 +43,7 @@ describe('Upload API', function () {
                 done(new Error('Upload suceeded with invalid file.'));
             }, function (result) {
                 result.code.should.equal(415);
-                result.type.should.equal('UnsupportedMediaTypeError');
+                result.errorType.should.equal('UnsupportedMediaTypeError');
                 done();
             });
         });
@@ -60,7 +60,7 @@ describe('Upload API', function () {
                 done(new Error('Upload suceeded with invalid file.'));
             }, function (result) {
                 result.code.should.equal(415);
-                result.type.should.equal('UnsupportedMediaTypeError');
+                result.errorType.should.equal('UnsupportedMediaTypeError');
                 done();
             });
         });
@@ -77,7 +77,6 @@ describe('Upload API', function () {
                 result.should.equal('URL');
                 done();
             });
-
         });
 
         it('cannot upload jpg with incorrect extension', function (done) {
@@ -90,7 +89,7 @@ describe('Upload API', function () {
                 done(new Error('Upload suceeded with invalid file.'));
             }, function (result) {
                 result.code.should.equal(415);
-                result.type.should.equal('UnsupportedMediaTypeError');
+                result.errorType.should.equal('UnsupportedMediaTypeError');
                 done();
             });
         });

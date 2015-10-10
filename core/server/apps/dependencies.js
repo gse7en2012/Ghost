@@ -15,12 +15,11 @@ AppDependencies.prototype.install = function installAppDependencies() {
         self = this;
 
     return new Promise(function (resolve, reject) {
-        fs.exists(path.join(self.appPath, 'package.json'), function (exists) {
-            if (!exists) {
-                // Nothing to do, resolve right away?
+        fs.stat(path.join(self.appPath, 'package.json'), function (err) {
+            if (err) {
+                // File doesn't exist - nothing to do, resolve right away?
                 resolve();
-            }
-            else {
+            } else {
                 // Run npm install in the app directory
                 spawnOpts = {
                     cwd: self.appPath
@@ -47,7 +46,7 @@ AppDependencies.prototype.spawnCommand = function (command, args, opt) {
 
     opt = opt || {};
 
-    return spawn(winCommand, winArgs, _.defaults({ stdio: 'inherit' }, opt));
+    return spawn(winCommand, winArgs, _.defaults({stdio: 'inherit'}, opt));
 };
 
 module.exports = AppDependencies;

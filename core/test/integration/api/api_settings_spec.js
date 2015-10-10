@@ -12,7 +12,6 @@ var testUtils           = require('../../utils'),
     getErrorDetails;
 
 describe('Settings API', function () {
-
     // Keep the DB clean
     before(testUtils.teardown);
     afterEach(testUtils.teardown);
@@ -64,7 +63,6 @@ describe('Settings API', function () {
         }).catch(getErrorDetails(done));
     });
 
-
     it('can browse by type', function (done) {
         return callApiWithContext(defaultContext, 'browse', {type: 'blog'}).then(function (results) {
             should.exist(results);
@@ -109,7 +107,7 @@ describe('Settings API', function () {
             done(new Error('Allowed to read databaseVersion with external request'));
         }).catch(function (error) {
             should.exist(error);
-            error.type.should.eql('NoPermissionError');
+            error.errorType.should.eql('NoPermissionError');
             done();
         }).catch(done);
     });
@@ -126,7 +124,7 @@ describe('Settings API', function () {
     });
 
     it('can read by object key', function (done) {
-        return callApiWithContext(defaultContext, 'read', { key: 'title' }).then(function (response) {
+        return callApiWithContext(defaultContext, 'read', {key: 'title'}).then(function (response) {
             should.exist(response);
             testUtils.API.checkResponse(response, 'settings');
             response.settings.length.should.equal(1);
@@ -137,7 +135,7 @@ describe('Settings API', function () {
     });
 
     it('can edit', function (done) {
-        return callApiWithContext(defaultContext, 'edit', {settings: [{ key: 'title', value: 'UpdatedGhost'}]}, {})
+        return callApiWithContext(defaultContext, 'edit', {settings: [{key: 'title', value: 'UpdatedGhost'}]}, {})
             .then(function (response) {
                 should.exist(response);
                 testUtils.API.checkResponse(response, 'settings');
@@ -149,20 +147,20 @@ describe('Settings API', function () {
     });
 
     it('cannot edit a core setting if not an internal request', function (done) {
-        return callApiWithContext(defaultContext, 'edit', {settings: [{ key: 'databaseVersion', value: '999'}]}, {})
+        return callApiWithContext(defaultContext, 'edit', {settings: [{key: 'databaseVersion', value: '999'}]}, {})
             .then(function () {
                 done(new Error('Allowed to edit a core setting as external request'));
             }).catch(function (err) {
                 should.exist(err);
 
-                err.type.should.eql('NoPermissionError');
+                err.errorType.should.eql('NoPermissionError');
 
                 done();
             }).catch(done);
     });
 
     it('can edit a core setting with an internal request', function (done) {
-        return callApiWithContext(internalContext, 'edit', {settings: [{ key: 'databaseVersion', value: '999'}]}, {})
+        return callApiWithContext(internalContext, 'edit', {settings: [{key: 'databaseVersion', value: '999'}]}, {})
             .then(function (response) {
                 should.exist(response);
                 testUtils.API.checkResponse(response, 'settings');
@@ -187,13 +185,13 @@ describe('Settings API', function () {
 
     it('does not allow an active theme which is not installed', function (done) {
         return callApiWithContext(defaultContext, 'edit', 'activeTheme', {
-            settings: [{ key: 'activeTheme', value: 'rasper' }]
+            settings: [{key: 'activeTheme', value: 'rasper'}]
         }).then(function () {
             done(new Error('Allowed to set an active theme which is not installed'));
         }).catch(function (err) {
             should.exist(err);
 
-            err.type.should.eql('ValidationError');
+            err.errorType.should.eql('ValidationError');
 
             done();
         }).catch(done);

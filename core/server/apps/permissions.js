@@ -13,23 +13,23 @@ AppPermissions.prototype.read = function () {
     var self = this;
 
     return this.checkPackageContentsExists().then(function (exists) {
-            if (!exists) {
-                // If no package.json, return default permissions
+        if (!exists) {
+            // If no package.json, return default permissions
+            return Promise.resolve(AppPermissions.DefaultPermissions);
+        }
+
+        // Read and parse the package.json
+        return self.getPackageContents().then(function (parsed) {
+            // If no permissions in the package.json then return the default permissions.
+            if (!(parsed.ghost && parsed.ghost.permissions)) {
                 return Promise.resolve(AppPermissions.DefaultPermissions);
             }
 
-            // Read and parse the package.json
-            return self.getPackageContents().then(function (parsed) {
-                    // If no permissions in the package.json then return the default permissions.
-                    if (!(parsed.ghost && parsed.ghost.permissions)) {
-                        return Promise.resolve(AppPermissions.DefaultPermissions);
-                    }
+            // TODO: Validation on permissions object?
 
-                    // TODO: Validation on permissions object?
-
-                    return Promise.resolve(parsed.ghost.permissions);
-                });
+            return Promise.resolve(parsed.ghost.permissions);
         });
+    });
 };
 
 AppPermissions.prototype.checkPackageContentsExists = function () {
@@ -37,7 +37,8 @@ AppPermissions.prototype.checkPackageContentsExists = function () {
 
     // Mostly just broken out for stubbing in unit tests
     return new Promise(function (resolve) {
-        fs.exists(self.packagePath, function (exists) {
+        fs.stat(self.packagePath, function (err) {
+            var exists = !err;
             resolve(exists);
         });
     });

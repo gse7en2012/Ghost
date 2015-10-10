@@ -2,13 +2,18 @@
 /*jshint expr:true*/
 var testUtils       = require('../../utils'),
     should          = require('should'),
+    sinon           = require('sinon'),
 
     // Stuff we are testing
     SettingsModel   = require('../../../server/models/settings').Settings,
     config          = require('../../../server/config'),
+    events          = require('../../../server/events'),
+    sandbox         = sinon.sandbox.create(),
     context         = testUtils.context.admin;
 
 describe('Settings Model', function () {
+    var eventSpy;
+
     // Keep the DB clean
     before(testUtils.teardown);
     afterEach(testUtils.teardown);
@@ -18,11 +23,17 @@ describe('Settings Model', function () {
         should.exist(SettingsModel);
     });
 
-    describe('API', function () {
+    afterEach(function () {
+        sandbox.restore();
+    });
 
+    beforeEach(function () {
+        eventSpy = sandbox.spy(events, 'emit');
+    });
+
+    describe('API', function () {
         it('can findAll', function (done) {
             SettingsModel.findAll().then(function (results) {
-
                 should.exist(results);
 
                 results.length.should.be.above(0);
@@ -35,7 +46,6 @@ describe('Settings Model', function () {
             var firstSetting;
 
             SettingsModel.findAll().then(function (results) {
-
                 should.exist(results);
 
                 results.length.should.be.above(0);
@@ -43,31 +53,24 @@ describe('Settings Model', function () {
                 firstSetting = results.models[0];
 
                 return SettingsModel.findOne(firstSetting.attributes.key);
-
             }).then(function (found) {
-
                 should.exist(found);
 
-                found.get('value').should.equal(firstSetting.attributes.value);
+                should(found.get('value')).equal(firstSetting.attributes.value);
                 found.get('created_at').should.be.an.instanceof(Date);
 
                 done();
-
             }).catch(done);
         });
 
         it('can edit single', function (done) {
-
             SettingsModel.findAll().then(function (results) {
-
                 should.exist(results);
 
                 results.length.should.be.above(0);
 
                 return SettingsModel.edit({key: 'description', value: 'new value'}, context);
-
             }).then(function (edited) {
-
                 should.exist(edited);
 
                 edited.length.should.equal(1);
@@ -77,8 +80,11 @@ describe('Settings Model', function () {
                 edited.attributes.key.should.equal('description');
                 edited.attributes.value.should.equal('new value');
 
-                done();
+                eventSpy.calledTwice.should.be.true;
+                eventSpy.firstCall.calledWith('settings.edited').should.be.true;
+                eventSpy.secondCall.calledWith('settings.description.edited').should.be.true;
 
+                done();
             }).catch(done);
         });
 
@@ -88,7 +94,6 @@ describe('Settings Model', function () {
                 editedModel;
 
             SettingsModel.findAll().then(function (results) {
-
                 should.exist(results);
 
                 results.length.should.be.above(0);
@@ -97,9 +102,7 @@ describe('Settings Model', function () {
                 model2 = {key: 'title', value: 'new title'};
 
                 return SettingsModel.edit([model1, model2], context);
-
             }).then(function (edited) {
-
                 should.exist(edited);
 
                 edited.length.should.equal(2);
@@ -114,8 +117,18 @@ describe('Settings Model', function () {
                 editedModel.attributes.key.should.equal(model2.key);
                 editedModel.attributes.value.should.equal(model2.value);
 
-                done();
+                eventSpy.callCount.should.equal(4);
 
+                // We can't rely on the order of updates.
+                // We can however expect the first and third call to
+                // to be `settings.edited`.
+                eventSpy.firstCall.calledWith('settings.edited').should.be.true;
+                eventSpy.thirdCall.calledWith('settings.edited').should.be.true;
+
+                eventSpy.calledWith('settings.description.edited').should.be.true;
+                eventSpy.calledWith('settings.title.edited').should.be.true;
+
+                done();
             }).catch(done);
         });
 
@@ -126,12 +139,15 @@ describe('Settings Model', function () {
             };
 
             SettingsModel.add(newSetting, context).then(function (createdSetting) {
-
                 should.exist(createdSetting);
                 createdSetting.has('uuid').should.equal(true);
                 createdSetting.attributes.key.should.equal(newSetting.key, 'key is correct');
                 createdSetting.attributes.value.should.equal(newSetting.value, 'value is correct');
                 createdSetting.attributes.type.should.equal('core');
+
+                eventSpy.calledTwice.should.be.true;
+                eventSpy.firstCall.calledWith('settings.added').should.be.true;
+                eventSpy.secondCall.calledWith('settings.TestSetting1.added').should.be.true;
 
                 done();
             }).catch(done);
@@ -159,7 +175,6 @@ describe('Settings Model', function () {
     });
 
     describe('populating defaults from settings.json', function () {
-
         beforeEach(function (done) {
             config.database.knex('settings').truncate().then(function () {
                 done();

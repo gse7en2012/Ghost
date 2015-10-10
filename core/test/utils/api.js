@@ -1,4 +1,5 @@
-var url             = require('url'),
+var _               = require('lodash'),
+    url             = require('url'),
     moment          = require('moment'),
     config          = require('../../server/config'),
     ApiRouteBase    = '/ghost/api/v0.1/',
@@ -13,22 +14,26 @@ var url             = require('url'),
         pagination: ['page', 'limit', 'pages', 'total', 'next', 'prev'],
         post: ['id', 'uuid', 'title', 'slug', 'markdown', 'html', 'meta_title', 'meta_description',
             'featured', 'image', 'status', 'language', 'created_at', 'created_by', 'updated_at',
-            'updated_by', 'published_at', 'published_by', 'page', 'author', 'tags', 'fields'],
+            'updated_by', 'published_at', 'published_by', 'page', 'author', 'url'
+        ],
         settings: ['settings', 'meta'],
         setting: ['id', 'uuid', 'key', 'value', 'type', 'created_at', 'created_by', 'updated_at', 'updated_by'],
         tag: ['id', 'uuid', 'name', 'slug', 'description', 'parent', 'image', 'hidden',
-            'meta_title', 'meta_description', 'created_at', 'created_by', 'updated_at', 'updated_by'],
+            'meta_title', 'meta_description', 'created_at', 'created_by', 'updated_at', 'updated_by'
+        ],
         theme: ['uuid', 'name', 'version', 'active'],
         user: ['id', 'uuid', 'name', 'slug', 'email', 'image', 'cover', 'bio', 'website',
-            'location', 'accessibility', 'status', 'language', 'meta_title', 'meta_description', 'last_login',
-            'created_at', 'created_by',  'updated_at', 'updated_by'],
+            'location', 'accessibility', 'status', 'language', 'meta_title', 'meta_description', 'tour', 'last_login',
+            'created_at', 'created_by',  'updated_at', 'updated_by'
+        ],
         notification: ['type', 'message', 'status', 'id', 'dismissible', 'location'],
         slugs: ['slugs'],
         slug: ['slug'],
         accesstoken: ['access_token', 'refresh_token', 'expires_in', 'token_type'],
         role: ['id', 'uuid', 'name', 'description', 'created_at', 'created_by', 'updated_at', 'updated_by'],
         permission: ['id', 'uuid', 'name', 'object_type', 'action_type', 'object_id', 'created_at', 'created_by',
-            'updated_at', 'updated_by']
+            'updated_at', 'updated_by'
+        ]
     };
 
 function getApiQuery(route) {
@@ -58,9 +63,10 @@ function checkResponseValue(jsonResponse, properties) {
     Object.keys(jsonResponse).length.should.eql(properties.length);
 }
 
-function checkResponse(jsonResponse, objectType, additionalProperties) {
+function checkResponse(jsonResponse, objectType, additionalProperties, missingProperties) {
     var checkProperties = expectedProperties[objectType];
     checkProperties = additionalProperties ? checkProperties.concat(additionalProperties) : checkProperties;
+    checkProperties = missingProperties ? _.xor(checkProperties, missingProperties) : checkProperties;
 
     checkResponseValue(jsonResponse, checkProperties);
 }

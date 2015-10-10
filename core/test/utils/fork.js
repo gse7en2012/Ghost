@@ -6,7 +6,7 @@ var cp         = require('child_process'),
     Promise    = require('bluebird'),
     path       = require('path'),
     config     = require('../../server/config');
-    
+
 function findFreePort(port) {
     return new Promise(function (resolve, reject) {
         if (typeof port === 'string') {
@@ -55,12 +55,12 @@ function forkGhost(newConfig, envName) {
         .then(function (port) {
             newConfig.server = newConfig.server || {};
             newConfig.server.port = port;
-            newConfig.url = url.format(_.extend(url.parse(newConfig.url), {port: port, host: null}));
+            newConfig.url = url.format(_.extend({}, url.parse(newConfig.url), {port: port, host: null}));
 
-            var newConfigFile = path.join(config.paths.appRoot, 'config.test' + port + '.js');
+            var newConfigFile = path.join(config.paths.appRoot, 'config.test.' + envName + '.js');
 
             return new Promise(function (resolve, reject) {
-                fs.writeFile(newConfigFile, 'module.exports = {' + envName + ': ' + JSON.stringify(newConfig) + '}', function (err) {
+                fs.writeFile(newConfigFile, 'module.exports = {"' + process.env.NODE_ENV + '": ' + JSON.stringify(newConfig) + '}', function (err) {
                     if (err) {
                         return reject(err);
                     }
@@ -80,9 +80,10 @@ function forkGhost(newConfig, envName) {
                             return false;
                         };
 
-                    env['GHOST_CONFIG'] = newConfigFile;
-                    env['NODE_ENV'] = envName;
+                    env.GHOST_CONFIG = newConfigFile;
                     child = cp.fork(path.join(config.paths.appRoot, 'index.js'), {env: env});
+                    // return the port to make it easier to do requests
+                    child.port = port;
                     // periodic check until forked Ghost is running and is listening on the port
                     pingCheck = setInterval(function () {
                         var socket = net.connect(port);
@@ -96,7 +97,8 @@ function forkGhost(newConfig, envName) {
                             /*jshint unused:false*/
                             pingTries = pingTries + 1;
                             // continue checking
-                            if (pingTries >= 20 && pingStop()) {
+                            if (pingTries >= 50 && pingStop()) {
+                                child.kill();
                                 reject(new Error('Timed out waiting for child process'));
                             }
                         });
@@ -105,13 +107,16 @@ function forkGhost(newConfig, envName) {
                     child.on('exit', function (code, signal) {
                         /*jshint unused:false*/
                         child.exited = true;
+
+                        fs.unlink(newConfigFile, function () {
+                            // swallow any errors -- file may not exist if fork() failed
+                        });
+
                         if (pingStop()) {
                             reject(new Error('Child process exit code: ' + code));
                         }
-                        // cleanup the temporary config file
-                        fs.unlink(newConfigFile);
                     });
-                    
+
                     // override kill() to have an async callback
                     baseKill = child.kill;
                     child.kill = function (signal, cb) {
